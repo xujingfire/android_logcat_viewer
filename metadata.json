@@ -1,0 +1,6 @@
+{
+  "name": "Android Logcat Viewer",
+  "description": "A high-fidelity Android Logcat logs viewer styled after Android Studio's Darcula theme, supporting package filtering, PID tracking, and log stream simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

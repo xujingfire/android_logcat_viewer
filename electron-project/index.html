@@ -1,0 +1,1647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Android Logcat Viewer (Darcula)</title>
+  <style>
+    /* Android Studio Darcula Theme Colors & Display custom properties */
+    :root {
+      --bg-color: #2b2b2b;
+      --panel-bg: #3c3f41;
+      --border-color: #323232;
+      --text-color: #a9b7c6;
+      --input-bg: #45494a;
+      --input-border: #646464;
+      --button-bg: #4b4d4d;
+      --button-hover: #5c5e5e;
+      --button-active: #3c3f41;
+      --button-primary: #1e5a2f;
+      --button-primary-hover: #27773f;
+      --button-danger: #7c2d12;
+      --button-danger-hover: #9a3412;
+      
+      /* Level Colors default values */
+      --color-text-V: #808080;
+      --color-bg-V: #3c3f41;
+      --color-text-D: #3582e1;
+      --color-bg-D: #223c5a;
+      --color-text-I: #39c039;
+      --color-bg-I: #204120;
+      --color-text-W: #e2a007;
+      --color-bg-W: #4a3c10;
+      --color-text-E: #e53e3e;
+      --color-bg-E: #4a1d1d;
+      --color-text-F: #ff3e3e;
+      --color-bg-F: #ff0000;
+
+      /* Widths dynamic columns */
+      --col-time-width: 165px;
+      --col-pid-width: 95px;
+      --col-level-width: 30px;
+      --col-tag-width: 160px;
+      --col-pkg-width: 180px;
+
+      /* Typography and Spacing */
+      --font-size: 11px;
+      --row-padding: 2px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: 'Consolas', 'Monaco', 'Fira Code', monospace;
+      font-size: var(--font-size);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Control Bar (Filter Bar) */
+    .filter-bar {
+      background-color: var(--panel-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      background-color: var(--button-bg);
+      color: #bbbbbb;
+      border: 1px solid var(--input-border);
+      padding: 5px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background-color 0.15s;
+    }
+
+    .btn:hover {
+      background-color: var(--button-hover);
+      color: #ffffff;
+    }
+
+    .btn:active {
+      background-color: var(--button-active);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-start {
+      background-color: var(--button-primary);
+      border-color: #2b6a3a;
+      color: #ffffff;
+    }
+
+    .btn-start:hover {
+      background-color: var(--button-primary-hover);
+    }
+
+    .btn-stop {
+      background-color: var(--button-danger);
+      border-color: #9a3412;
+      color: #ffffff;
+    }
+
+    .btn-stop:hover {
+      background-color: var(--button-danger-hover);
+    }
+
+    .input-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .input-group label {
+      color: #808080;
+      font-size: 11px;
+    }
+
+    .input-control {
+      background-color: var(--input-bg);
+      color: #ffffff;
+      border: 1px solid var(--input-border);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+      height: 25px;
+    }
+
+    .input-control:focus {
+      border-color: #3b82f6;
+    }
+
+    .select-control {
+      background-color: var(--input-bg);
+      color: #ffffff;
+      border: 1px solid var(--input-border);
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+      height: 25px;
+    }
+
+    /* PID and Connection Stats */
+    .status-panel {
+      font-size: 11px;
+      color: #888888;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-left: auto;
+    }
+
+    .badge {
+      background: #323232;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid #444;
+    }
+
+    .badge-pid {
+      color: #a9b7c6;
+    }
+
+    .badge-pid.active {
+      color: var(--color-text-I);
+      border-color: rgba(57, 192, 57, 0.4);
+    }
+
+    /* Log Display Area */
+    .log-container {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 10px;
+      background-color: var(--bg-color);
+    }
+
+    /* Log line representation (Android Studio Style table-like rows) */
+    .log-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .log-row {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #2e2e2e;
+      padding: var(--row-padding) 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: var(--font-size);
+    }
+
+    .log-row:hover {
+      background-color: #323232;
+    }
+
+    /* Individual column width constraints with borders */
+    .col-time {
+      width: var(--col-time-width);
+      min-width: var(--col-time-width);
+      max-width: var(--col-time-width);
+      color: #808080;
+      flex-shrink: 0;
+      border-right: 1px solid rgba(46, 46, 46, 0.4);
+      padding-right: 8px;
+      padding-left: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .col-pid {
+      width: var(--col-pid-width);
+      min-width: var(--col-pid-width);
+      max-width: var(--col-pid-width);
+      color: #7f8c8d;
+      flex-shrink: 0;
+      text-align: right;
+      border-right: 1px solid rgba(46, 46, 46, 0.4);
+      padding-right: 8px;
+      padding-left: 8px;
+    }
+
+    .col-level {
+      width: var(--col-level-width);
+      min-width: var(--col-level-width);
+      max-width: var(--col-level-width);
+      text-align: center;
+      font-weight: bold;
+      flex-shrink: 0;
+      border-right: 1px solid rgba(46, 46, 46, 0.4);
+      padding-right: 2px;
+      padding-left: 2px;
+      border-radius: 2px;
+    }
+
+    .col-tag {
+      width: var(--col-tag-width);
+      min-width: var(--col-tag-width);
+      max-width: var(--col-tag-width);
+      color: #9876aa;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-right: 1px solid rgba(46, 46, 46, 0.4);
+      padding-right: 8px;
+      padding-left: 8px;
+    }
+
+    .col-package {
+      width: var(--col-pkg-width);
+      min-width: var(--col-pkg-width);
+      max-width: var(--col-pkg-width);
+      color: #bbbbbb;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-right: 1px solid rgba(46, 46, 46, 0.4);
+      padding-right: 8px;
+      padding-left: 8px;
+      opacity: 0.9;
+    }
+
+    .col-message {
+      flex: 1;
+      color: inherit;
+      padding-left: 8px;
+    }
+
+    .log-headers {
+      display: flex;
+      align-items: center;
+      background-color: #313335;
+      border-bottom: 1px solid #323232;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #909090;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .log-headers .col-time,
+    .log-headers .col-pid,
+    .log-headers .col-level,
+    .log-headers .col-tag,
+    .log-headers .col-package {
+      position: relative;
+    }
+
+    /* Style logs by levels */
+    .level-V { color: var(--color-text-V); }
+    .level-V .col-level { background: var(--color-bg-V); color: var(--color-text-V); }
+
+    .level-D { color: var(--color-text-D); }
+    .level-D .col-level { background: var(--color-bg-D); color: var(--color-text-D); }
+
+    .level-I { color: var(--color-text-I); }
+    .level-I .col-level { background: var(--color-bg-I); color: var(--color-text-I); }
+
+    .level-W { color: var(--color-text-W); }
+    .level-W .col-level { background: var(--color-bg-W); color: var(--color-text-W); }
+
+    .level-E { color: var(--color-text-E); }
+    .level-E .col-level { background: var(--color-bg-E); color: var(--color-text-E); }
+
+    .level-F { color: #ffffff; font-weight: bold; }
+    .level-F .col-level { background: var(--color-bg-F); color: #ffffff; }
+
+    /* For unparsed or general system logs */
+    .level-raw {
+      color: #888888;
+      padding: var(--row-padding) 8px;
+    }
+
+    /* Bottom Status Bar */
+    .status-bar {
+      background-color: var(--panel-bg);
+      border-top: 1px solid var(--border-color);
+      height: 24px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 11px;
+      color: #808080;
+    }
+
+    .scroll-opt {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 15px;
+      cursor: pointer;
+    }
+
+    .scroll-opt input {
+      cursor: pointer;
+    }
+
+    /* Resize handles in table columns */
+    .resize-handle {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      cursor: col-resize;
+      z-index: 20;
+    }
+
+    .resize-handle:hover {
+      background-color: rgba(59, 130, 246, 0.6);
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.6);
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background-color: #3c3f41;
+      border: 1px solid #555;
+      border-radius: 4px;
+      width: 480px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .modal-header {
+      background-color: #2f3132;
+      padding: 10px 15px;
+      border-bottom: 1px solid #323232;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    .modal-close:hover {
+      color: #fff;
+    }
+
+    .modal-body {
+      padding: 15px;
+      overflow-y: auto;
+      max-height: 400px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .modal-footer {
+      background-color: #2f3132;
+      padding: 10px 15px;
+      border-top: 1px solid #323232;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .settings-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .section-title {
+      color: #a9b7c6;
+      font-weight: bold;
+      border-bottom: 1px solid #4d4d4d;
+      padding-bottom: 4px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .setting-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .setting-item label {
+      color: #909090;
+    }
+
+    .setting-item input[type="range"] {
+      cursor: pointer;
+      accent-color: #3b82f6;
+    }
+
+    .level-colors-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .grid-header {
+      color: #909090;
+      font-weight: bold;
+      text-align: center;
+      border-bottom: 1px solid #3c3f41;
+      padding-bottom: 4px;
+    }
+    .grid-header:first-child {
+      text-align: left;
+    }
+
+    .level-row-item {
+      color: #bbbbbb;
+      font-family: monospace;
+      font-weight: bold;
+    }
+
+    .color-picker-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .color-picker-cell input[type="color"] {
+      width: 24px;
+      height: 20px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+      padding: 0;
+    }
+
+    .hex-span {
+      font-family: monospace;
+      font-size: 10px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Filters Panel -->
+  <div class="filter-bar">
+    <button id="btnStart" class="btn btn-start" onclick="startListening()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>开始监听
+    </button>
+    <button id="btnStop" class="btn btn-stop" onclick="stopListening()" disabled>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>停止
+    </button>
+    <button id="btnClear" class="btn" onclick="clearLogs()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空
+    </button>
+    <button id="btnExport" class="btn" onclick="exportLogs()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>导出
+    </button>
+    <button id="btnSettings" class="btn" onclick="openSettings()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置
+    </button>
+
+    <!-- Device Selector -->
+    <div class="input-group">
+      <label for="selectDevice">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 2px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>设备选择:
+      </label>
+      <select id="selectDevice" class="select-control" style="width: 220px;" onchange="onDeviceChange()">
+        <optgroup label="模拟调试设备 (Virtual)">
+          <option value="sim-pixel8">Google Pixel 8 Pro (8HGX249FA81039) [模拟]</option>
+          <option value="sim-emulator">Android SDK Emulator (emulator-5554) [模拟]</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <!-- App Package Tracker -->
+    <div class="input-group">
+      <label for="inputPkg">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 2px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>应用包名:
+      </label>
+      <input id="inputPkg" type="text" class="input-control" style="width: 180px;" list="packagesDatalist" placeholder="e.g. com.example.app" onchange="onPackageNameChange()">
+      <datalist id="packagesDatalist">
+        <option value="com.tencent.mm">微信 (WeChat)</option>
+        <option value="com.ss.android.ugc.aweme">抖音 (TikTok)</option>
+        <option value="com.android.systemui">系统 UI (SystemUI)</option>
+        <option value="com.google.android.gms">谷歌服务 (GMS)</option>
+        <option value="com.tuyoo.doudizhu.android3d">斗地主 (Doudizhu)</option>
+      </datalist>
+    </div>
+
+    <!-- Log Level Select -->
+    <div class="input-group">
+      <label for="selectLevel">最低等级:</label>
+      <select id="selectLevel" class="select-control" onchange="applyFilters()">
+        <option value="V">Verbose (V)</option>
+        <option value="D">Debug (D)</option>
+        <option value="I">Info (I)</option>
+        <option value="W">Warn (W)</option>
+        <option value="E">Error (E)</option>
+        <option value="F">Fatal (F)</option>
+      </select>
+    </div>
+
+    <!-- Keyword Search -->
+    <div class="input-group">
+      <label for="inputSearch">关键词检索:</label>
+      <input id="inputSearch" type="text" class="input-control" style="width: 200px;" placeholder="检索 Tag 或内容 (支持正则)" oninput="applyFilters()">
+    </div>
+
+    <!-- Buffer Limit Select -->
+    <div class="input-group">
+      <label for="selectBuffer">缓冲区:</label>
+      <select id="selectBuffer" class="select-control" onchange="onBufferChange()">
+        <option value="500">500行</option>
+        <option value="1500" selected>1500行</option>
+        <option value="3000">3000行</option>
+      </select>
+    </div>
+
+    <!-- Connection Status Info -->
+    <div class="status-panel">
+      <span id="deviceBadge" class="badge">未连接设备</span>
+      <span id="pidBadge" class="badge badge-pid">PID: -</span>
+    </div>
+  </div>
+
+  <!-- Main Log Output Area -->
+  <div id="logContainer" class="log-container">
+    <!-- Column Headers -->
+    <div class="log-headers" style="position: sticky; top: -10px; z-index: 10; margin: -10px -10px 10px -10px; border-bottom: 1px solid #323232;">
+      <div class="col-time" style="color: #888; font-weight: bold;">
+        时间 (Timestamp)
+        <div class="resize-handle" data-col="time"></div>
+      </div>
+      <div class="col-pid" style="color: #888; font-weight: bold;">
+        进程 PID-TID
+        <div class="resize-handle" data-col="pid"></div>
+      </div>
+      <div class="col-level" style="color: #888; font-weight: bold;">
+        级
+        <div class="resize-handle" data-col="level"></div>
+      </div>
+      <div class="col-tag" style="color: #888; font-weight: bold;">
+        标签 (Tag)
+        <div class="resize-handle" data-col="tag"></div>
+      </div>
+      <div class="col-package" style="color: #888; font-weight: bold;">
+        包名 (Package)
+        <div class="resize-handle" data-col="pkg"></div>
+      </div>
+      <div class="col-message" style="color: #888; font-weight: bold;">日志内容 (Log Message)</div>
+    </div>
+    <div id="logTable" class="log-table">
+      <!-- Logs will be inserted here dynamically -->
+    </div>
+  </div>
+
+  <!-- Bottom Status Bar -->
+  <div class="status-bar">
+    <span id="lineCounter">当前展示: 0 行 (缓冲区上限: 1500 行)</span>
+    
+    <label class="scroll-opt">
+      <input id="chkScroll" type="checkbox" checked> 自动滚动到底部
+    </label>
+
+    <span style="margin-left: auto;" id="statusText">就绪</span>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span style="display: flex; align-items: center; gap: 6px; font-weight: bold;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          日志显示与颜色自定义设置 (Logcat Settings)
+        </span>
+        <button class="modal-close" onclick="closeSettings()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Spacing & Typography -->
+        <div class="settings-section">
+          <div class="section-title">排版与行高 (Typography & Spacing)</div>
+          <div class="grid-2">
+            <div class="setting-item">
+              <label id="lblFontSize">字体大小 (Font Size): 11px</label>
+              <input type="range" id="inputFontSize" min="9" max="16" value="11" oninput="updateFontSize(this.value)">
+            </div>
+            <div class="setting-item">
+              <label id="lblRowPadding">上下内边距 (Padding): 2px</label>
+              <input type="range" id="inputRowPadding" min="0" max="10" value="2" oninput="updateRowPadding(this.value)">
+            </div>
+          </div>
+        </div>
+
+        <!-- Level Colors -->
+        <div class="settings-section">
+          <div class="section-title">级别颜色配置 (Log Level Colors)</div>
+          <div class="level-colors-grid">
+            <div class="grid-header">日志级别</div>
+            <div class="grid-header">前景色 (Text)</div>
+            <div class="grid-header">背景色 (Badge)</div>
+
+            <!-- V -->
+            <div class="level-row-item">Verbose (V)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextV" onchange="updateLevelColor('V', this.value)">
+              <span id="txtColorV" class="hex-span">#808080</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgV" onchange="updateLevelBg('V', this.value)">
+              <span id="txtBgV" class="hex-span">#3c3f41</span>
+            </div>
+
+            <!-- D -->
+            <div class="level-row-item">Debug (D)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextD" onchange="updateLevelColor('D', this.value)">
+              <span id="txtColorD" class="hex-span">#3582e1</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgD" onchange="updateLevelBg('D', this.value)">
+              <span id="txtBgD" class="hex-span">#223c5a</span>
+            </div>
+
+            <!-- I -->
+            <div class="level-row-item">Info (I)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextI" onchange="updateLevelColor('I', this.value)">
+              <span id="txtColorI" class="hex-span">#39c039</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgI" onchange="updateLevelBg('I', this.value)">
+              <span id="txtBgI" class="hex-span">#204120</span>
+            </div>
+
+            <!-- W -->
+            <div class="level-row-item">Warn (W)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextW" onchange="updateLevelColor('W', this.value)">
+              <span id="txtColorW" class="hex-span">#e2a007</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgW" onchange="updateLevelBg('W', this.value)">
+              <span id="txtBgW" class="hex-span">#4a3c10</span>
+            </div>
+
+            <!-- E -->
+            <div class="level-row-item">Error (E)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextE" onchange="updateLevelColor('E', this.value)">
+              <span id="txtColorE" class="hex-span">#e53e3e</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgE" onchange="updateLevelBg('E', this.value)">
+              <span id="txtBgE" class="hex-span">#4a1d1d</span>
+            </div>
+
+            <!-- F -->
+            <div class="level-row-item">Fatal (F)</div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorTextF" onchange="updateLevelColor('F', this.value)">
+              <span id="txtColorF" class="hex-span">#ff3e3e</span>
+            </div>
+            <div class="color-picker-cell">
+              <input type="color" id="colorBgF" onchange="updateLevelBg('F', this.value)">
+              <span id="txtBgF" class="hex-span">#ff0000</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="resetSettings()">恢复默认</button>
+        <button class="btn btn-start" style="padding: 5px 16px;" onclick="closeSettings()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Electron IPC Setup
+    const { ipcRenderer } = require('electron');
+
+    // Buffer limits & logs arrays
+    let MAX_DOM_LINES = 1500;
+    let rawLogs = []; // Stores parsed logs in memory: { id, raw, time, pid, tid, level, tag, msg }
+    let logIdCounter = 0;
+    let trackedPid = '';
+    let isTracking = false;
+
+    // Levels mapping hierarchy
+    const LEVEL_HIERARCHY = { 'V': 0, 'D': 1, 'I': 2, 'W': 3, 'E': 4, 'F': 5 };
+
+    // Regex to parse ADB Logcat 'threadtime' format
+    // Format: "06-25 14:32:05.123  1024  2048 I ActivityManager: Message content here"
+    const THREADTIME_REGEX = /^(\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.*?):\s(.*)$/;
+
+    // 局部仿真定时器
+    let simulationInterval = null;
+    let localSimulatedPids = {
+      'com.tencent.mm': 8210,
+      'com.ss.android.ugc.aweme': 13912,
+      'com.android.systemui': 1248,
+      'com.google.android.gms': 2145,
+      'com.tuyoo.doudizhu.android3d': 28450
+    };
+
+    let pidMap = {
+      '8210': 'com.tencent.mm',
+      '13912': 'com.ss.android.ugc.aweme',
+      '1248': 'com.android.systemui',
+      '2145': 'com.google.android.gms',
+      '28450': 'com.example.logcatdemo',
+      '1412': 'system_server',
+      '1282': 'system_server'
+    };
+
+    // --- Display & Colors Customization Persistence ---
+    let colWidths = {
+      time: 165,
+      pid: 95,
+      level: 30,
+      tag: 160,
+      pkg: 180
+    };
+    
+    let levelColors = {
+      V: '#808080',
+      D: '#3582e1',
+      I: '#39c039',
+      W: '#e2a007',
+      E: '#e53e3e',
+      F: '#ff3e3e'
+    };
+    
+    let levelBgs = {
+      V: '#3c3f41',
+      D: '#223c5a',
+      I: '#204120',
+      W: '#4a3c10',
+      E: '#4a1d1d',
+      F: '#ff0000'
+    };
+
+    let fontSize = 11;
+    let rowPadding = 2;
+
+    function saveColWidths() {
+      localStorage.setItem('log_colWidths', JSON.stringify(colWidths));
+    }
+
+    function loadSettings() {
+      // Load column widths
+      const savedWidths = localStorage.getItem('log_colWidths');
+      if (savedWidths) {
+        try {
+          colWidths = JSON.parse(savedWidths);
+        } catch(e) {}
+      }
+      
+      // Load level colors
+      const savedColors = localStorage.getItem('log_levelColors');
+      if (savedColors) {
+        try {
+          levelColors = JSON.parse(savedColors);
+        } catch(e) {}
+      }
+      
+      // Load level bgs
+      const savedBgs = localStorage.getItem('log_levelBgs');
+      if (savedBgs) {
+        try {
+          levelBgs = JSON.parse(savedBgs);
+        } catch(e) {}
+      }
+      
+      // Load typography
+      const savedFontSize = localStorage.getItem('log_fontSize');
+      if (savedFontSize !== null) fontSize = parseInt(savedFontSize, 10);
+      
+      const savedRowPadding = localStorage.getItem('log_rowPadding');
+      if (savedRowPadding !== null) rowPadding = parseInt(savedRowPadding, 10);
+      
+      // Apply variables to document
+      applySettingsCSS();
+      
+      // Update Inputs
+      document.getElementById('inputFontSize').value = fontSize;
+      document.getElementById('lblFontSize').textContent = `字体大小 (Font Size): ${fontSize}px`;
+      
+      document.getElementById('inputRowPadding').value = rowPadding;
+      document.getElementById('lblRowPadding').textContent = `上下内边距 (Padding): ${rowPadding}px`;
+      
+      ['V', 'D', 'I', 'W', 'E', 'F'].forEach(lvl => {
+        document.getElementById(`colorText${lvl}`).value = levelColors[lvl];
+        document.getElementById(`txtColor${lvl}`).textContent = levelColors[lvl];
+        document.getElementById(`colorBg${lvl}`).value = levelBgs[lvl];
+        document.getElementById(`txtBg${lvl}`).textContent = levelBgs[lvl];
+      });
+    }
+
+    function applySettingsCSS() {
+      const root = document.documentElement;
+      root.style.setProperty('--col-time-width', `${colWidths.time}px`);
+      root.style.setProperty('--col-pid-width', `${colWidths.pid}px`);
+      root.style.setProperty('--col-level-width', `${colWidths.level}px`);
+      root.style.setProperty('--col-tag-width', `${colWidths.tag}px`);
+      root.style.setProperty('--col-pkg-width', `${colWidths.pkg}px`);
+      root.style.setProperty('--font-size', `${fontSize}px`);
+      root.style.setProperty('--row-padding', `${rowPadding}px`);
+      
+      ['V', 'D', 'I', 'W', 'E', 'F'].forEach(lvl => {
+        root.style.setProperty(`--color-text-${lvl}`, levelColors[lvl]);
+        root.style.setProperty(`--color-bg-${lvl}`, levelBgs[lvl]);
+      });
+    }
+
+    function updateFontSize(val) {
+      fontSize = parseInt(val, 10);
+      document.getElementById('lblFontSize').textContent = `字体大小 (Font Size): ${fontSize}px`;
+      document.documentElement.style.setProperty('--font-size', `${fontSize}px`);
+      localStorage.setItem('log_fontSize', fontSize);
+    }
+
+    function updateRowPadding(val) {
+      rowPadding = parseInt(val, 10);
+      document.getElementById('lblRowPadding').textContent = `上下内边距 (Padding): ${rowPadding}px`;
+      document.documentElement.style.setProperty('--row-padding', `${rowPadding}px`);
+      localStorage.setItem('log_rowPadding', rowPadding);
+    }
+
+    function updateLevelColor(lvl, color) {
+      levelColors[lvl] = color;
+      document.getElementById(`txtColor${lvl}`).textContent = color;
+      document.documentElement.style.setProperty(`--color-text-${lvl}`, color);
+      localStorage.setItem('log_levelColors', JSON.stringify(levelColors));
+    }
+
+    function updateLevelBg(lvl, bg) {
+      levelBgs[lvl] = bg;
+      document.getElementById(`txtBg${lvl}`).textContent = bg;
+      document.documentElement.style.setProperty(`--color-bg-${lvl}`, bg);
+      localStorage.setItem('log_levelBgs', JSON.stringify(levelBgs));
+    }
+
+    function openSettings() {
+      document.getElementById('settingsModal').style.display = 'flex';
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    function resetSettings() {
+      colWidths = {
+        time: 165,
+        pid: 95,
+        level: 30,
+        tag: 160,
+        pkg: 180
+      };
+      levelColors = {
+        V: '#808080',
+        D: '#3582e1',
+        I: '#39c039',
+        W: '#e2a007',
+        E: '#e53e3e',
+        F: '#ff3e3e'
+      };
+      levelBgs = {
+        V: '#3c3f41',
+        D: '#223c5a',
+        I: '#204120',
+        W: '#4a3c10',
+        E: '#4a1d1d',
+        F: '#ff0000'
+      };
+      fontSize = 11;
+      rowPadding = 2;
+      
+      localStorage.removeItem('log_colWidths');
+      localStorage.removeItem('log_levelColors');
+      localStorage.removeItem('log_levelBgs');
+      localStorage.removeItem('log_fontSize');
+      localStorage.removeItem('log_rowPadding');
+      
+      loadSettings();
+    }
+
+    // Drag-to-resize columns logic
+    let activeResizer = null;
+    let startX = 0;
+    let startWidth = 0;
+    let targetColKey = '';
+
+    document.addEventListener('mousedown', function(e) {
+      if (e.target.classList.contains('resize-handle')) {
+        activeResizer = e.target;
+        targetColKey = e.target.getAttribute('data-col');
+        startX = e.clientX;
+        startWidth = colWidths[targetColKey];
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!activeResizer) return;
+      const dx = e.clientX - startX;
+      let newWidth = Math.max(20, startWidth + dx);
+      colWidths[targetColKey] = newWidth;
+      document.documentElement.style.setProperty(`--col-${targetColKey}-width`, `${newWidth}px`);
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (activeResizer) {
+        saveColWidths();
+        activeResizer = null;
+      }
+    });
+
+    // Close modal when clicking outside of it
+    window.addEventListener('click', function(event) {
+      const modal = document.getElementById('settingsModal');
+      if (event.target === modal) {
+        closeSettings();
+      }
+    });
+
+    // Run loadSettings on load
+    window.addEventListener('DOMContentLoaded', loadSettings);
+
+    // Auto check device listing and running packages on launch
+    setInterval(() => {
+      ipcRenderer.send('check-devices');
+      const deviceId = getSelectedDeviceId();
+      if (deviceId && !deviceId.startsWith('sim-')) {
+        ipcRenderer.send('check-running-packages', deviceId);
+        ipcRenderer.send('get-pid-map', deviceId);
+      }
+    }, 3000);
+
+    ipcRenderer.on('pid-map-updated', (event, updatedMap) => {
+      pidMap = { ...pidMap, ...updatedMap };
+      applyFilters();
+    });
+
+    function getSelectedDeviceId() {
+      const selectDevice = document.getElementById('selectDevice');
+      return selectDevice ? selectDevice.value : 'sim-pixel8';
+    }
+
+    ipcRenderer.on('devices-list', (event, devices) => {
+      const selectDevice = document.getElementById('selectDevice');
+      const previousValue = selectDevice.value;
+      
+      // 保存现有的选项并重建
+      selectDevice.innerHTML = '';
+      
+      const virtualGroup = document.createElement('optgroup');
+      virtualGroup.label = "模拟调试设备 (Virtual)";
+      virtualGroup.innerHTML = `
+        <option value="sim-pixel8">Google Pixel 8 Pro (8HGX249FA81039) Android 14, API 34 [模拟]</option>
+        <option value="sim-emulator">Android SDK Emulator (emulator-5554) Android 13, API 33 [模拟]</option>
+      `;
+      selectDevice.appendChild(virtualGroup);
+      
+      if (devices && devices.length > 0) {
+        const realGroup = document.createElement('optgroup');
+        realGroup.label = "物理连接设备 (Real ADB)";
+        devices.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.id;
+          const verInfo = d.release && d.sdk ? ` Android ${d.release}, API ${d.sdk}` : '';
+          opt.textContent = `${d.model} (${d.id})${verInfo} - ${d.status === 'device' ? '在线' : d.status}`;
+          if (d.status !== 'device') {
+            opt.disabled = true;
+          }
+          realGroup.appendChild(opt);
+        });
+        selectDevice.appendChild(realGroup);
+      }
+      
+      // 尽可能还原先前的选择
+      if (previousValue && Array.from(selectDevice.options).some(opt => opt.value === previousValue)) {
+        selectDevice.value = previousValue;
+      } else {
+        // 如果有真实设备在线，优先选择真实设备
+        const activeRealDevice = devices.find(d => d.status === 'device');
+        if (activeRealDevice) {
+          selectDevice.value = activeRealDevice.id;
+        } else {
+          selectDevice.value = 'sim-pixel8';
+        }
+      }
+      
+      // 更新界面在线气泡
+      const activeDevices = devices.filter(d => d.status === 'device');
+      const deviceBadge = document.getElementById('deviceBadge');
+      if (activeDevices.length > 0) {
+        deviceBadge.textContent = '物理真机在线: ' + activeDevices[0].id;
+        deviceBadge.style.color = '#39c039';
+        deviceBadge.style.borderColor = 'rgba(57,192,57,0.4)';
+      } else {
+        const currentVal = selectDevice.value;
+        if (currentVal && currentVal.startsWith('sim-')) {
+          deviceBadge.textContent = '本地仿真模式运行中';
+          deviceBadge.style.color = '#589df6';
+          deviceBadge.style.borderColor = 'rgba(88,157,246,0.4)';
+        } else {
+          deviceBadge.textContent = '未连接物理真机';
+          deviceBadge.style.color = '#888888';
+          deviceBadge.style.borderColor = '#444';
+        }
+      }
+    });
+
+    ipcRenderer.on('running-packages-list', (event, packages) => {
+      const datalist = document.getElementById('packagesDatalist');
+      if (!datalist) return;
+      
+      // 保留默认预设
+      const presets = [
+        { pkg: 'com.tencent.mm', name: '微信 (WeChat)' },
+        { pkg: 'com.ss.android.ugc.aweme', name: '抖音 (TikTok)' },
+        { pkg: 'com.android.systemui', name: '系统 UI (SystemUI)' },
+        { pkg: 'com.google.android.gms', name: '谷歌服务 (GMS)' },
+        { pkg: 'com.tuyoo.doudizhu.android3d', name: '斗地主 (Doudizhu)' }
+      ];
+      
+      let html = '';
+      presets.forEach(p => {
+        html += `<option value="${p.pkg}">${p.name}</option>`;
+      });
+      
+      packages.forEach(pkg => {
+        if (!presets.some(p => p.pkg === pkg)) {
+          html += `<option value="${pkg}">运行中进程: ${pkg}</option>`;
+        }
+      });
+      datalist.innerHTML = html;
+    });
+
+    ipcRenderer.on('pid-updated', (event, data) => {
+      const pidBadge = document.getElementById('pidBadge');
+      if (data.pid) {
+        trackedPid = data.pid;
+        pidBadge.textContent = `PID: ${trackedPid} (${data.packageName})`;
+        pidBadge.classList.add('active');
+        applyFilters();
+      } else {
+        trackedPid = '';
+        pidBadge.textContent = `PID: - (未运行)`;
+        pidBadge.classList.remove('active');
+        applyFilters();
+      }
+    });
+
+    ipcRenderer.on('log-data', (event, dataChunk) => {
+      appendLogChunk(dataChunk);
+    });
+
+    ipcRenderer.on('log-error', (event, errorText) => {
+      appendRawLine(`ADB Error: ${errorText}`);
+    });
+
+    ipcRenderer.on('log-closed', (event, code) => {
+      stopListening();
+      appendRawLine(`ADB Logcat stream closed with exit code: ${code}`);
+    });
+
+    function onDeviceChange() {
+      // 切换设备如果处于监听状态，立即重新监听
+      if (isTracking) {
+        startListening();
+      } else {
+        // 刷新状态气泡
+        ipcRenderer.send('check-devices');
+      }
+    }
+
+    function onBufferChange() {
+      const selectBuffer = document.getElementById('selectBuffer');
+      MAX_DOM_LINES = parseInt(selectBuffer.value, 10);
+      trimBuffer();
+      updateLineCounter();
+    }
+
+    // 开始抓取
+    function startListening() {
+      // 停止上一轮可能的仿真/ADB
+      stopListeningOnly();
+      
+      isTracking = true;
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+      
+      const deviceId = getSelectedDeviceId();
+      const statusText = document.getElementById('statusText');
+      const pidBadge = document.getElementById('pidBadge');
+      
+      if (deviceId && !deviceId.startsWith('sim-')) {
+        statusText.textContent = `正在连接物理设备 [${deviceId}] 实时捕获中...`;
+        statusText.style.color = '#39c039';
+        
+        // 启动进程
+        ipcRenderer.send('control-adb', 'start', null, deviceId);
+        onPackageNameChange();
+      } else {
+        statusText.textContent = `正在启动本地高保真日志仿真模拟器 [${deviceId === 'sim-pixel8' ? 'Pixel 8 Pro' : 'Emulator'}]...`;
+        statusText.style.color = '#589df6';
+        
+        // 启动本地仿真
+        startLocalSimulation();
+      }
+    }
+
+    // 仅停止，不修改 UI 禁用状态，防循环覆盖
+    function stopListeningOnly() {
+      if (simulationInterval) {
+        clearInterval(simulationInterval);
+        simulationInterval = null;
+      }
+      ipcRenderer.send('control-adb', 'stop');
+    }
+
+    // 停止抓取
+    function stopListening() {
+      isTracking = false;
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+      
+      const statusText = document.getElementById('statusText');
+      statusText.textContent = '已停止监听';
+      statusText.style.color = '#888888';
+
+      stopListeningOnly();
+    }
+
+    // 本地高保真日志仿真逻辑
+    function startLocalSimulation() {
+      if (simulationInterval) clearInterval(simulationInterval);
+      
+      appendRawLine(`[SYSTEM] 正在初始化高保真 Android Logcat 本地仿真器...`);
+      appendRawLine(`[SYSTEM] 提示: 仿真模式会模拟产生系统与常用App的真实日志，包名和过滤条件仍然完全可用。`);
+      
+      // 更新 PID 状态
+      const updateSimulatedPid = () => {
+        const pkg = document.getElementById('inputPkg').value.trim();
+        const pidBadge = document.getElementById('pidBadge');
+        if (pkg) {
+          trackedPid = localSimulatedPids[pkg] || "28450";
+          pidBadge.textContent = `PID: ${trackedPid} (${pkg})`;
+          pidBadge.classList.add('active');
+        } else {
+          trackedPid = '';
+          pidBadge.textContent = `PID: -`;
+          pidBadge.classList.remove('active');
+        }
+        applyFilters();
+      };
+      updateSimulatedPid();
+
+      const simApps = [
+        {
+          pkg: 'com.tencent.mm',
+          tag: 'MicroMsg.MMSync',
+          logs: [
+            { level: 'I', msg: 'SyncTask started, trigger reason: manual_refresh_pull' },
+            { level: 'D', msg: 'Checking db file integrity... MMSync.db state: OK' },
+            { level: 'I', msg: 'Network request: get_new_messages, size: 450 bytes' },
+            { level: 'V', msg: 'MMSync task completed successfully, connection keep-alive = true' }
+          ]
+        },
+        {
+          pkg: 'com.ss.android.ugc.aweme',
+          tag: 'TikTokPlayer',
+          logs: [
+            { level: 'I', msg: 'Player prepareVideoAsync, videoId: aweme_v2_9103982429' },
+            { level: 'D', msg: 'VideoEngine setDataSource: https://v.tiktokcdn.com/9103982429.mp4' },
+            { level: 'W', msg: 'Heavy frame drop detected! Skipped 15 frames during rendering transition' },
+            { level: 'I', msg: 'Player state transitioned: STATE_PREPARED -> STATE_PLAYING' }
+          ]
+        },
+        {
+          pkg: 'com.tuyoo.doudizhu.android3d',
+          tag: 'Unity',
+          logs: [
+            { level: 'I', msg: '[ErrorReporter][07:22:12.338] 开始初始化 SDK 核心模块' },
+            { level: 'D', msg: 'Framework.QPDebug:OutputToConsole -> Active Scene: LobbyMain_v3' },
+            { level: 'W', msg: 'AssetBundleManager: LoadAssetAsync failed for profile_frame_9.png' },
+            { level: 'E', msg: 'NetworkError: Socket closed prematurely, trying to reconnect in 1000ms' }
+          ]
+        },
+        {
+          pkg: 'com.android.systemui',
+          tag: 'BatteryService',
+          logs: [
+            { level: 'I', msg: 'Battery level updated: 84%, temp: 31.4C, voltage: 4120mV' },
+            { level: 'D', msg: 'Charging path status: discharging, screen: on, draw: 450mA' }
+          ]
+        }
+      ];
+
+      const simSys = [
+        { level: 'I', tag: 'dalvikvm', msg: 'GC_CONCURRENT freed 2048K, 14% free 16420K/19120K, paused 1ms+2ms' },
+        { level: 'D', tag: 'skia', msg: 'Shader cache compiled 1 new shader in 24ms, total size: 450KB' },
+        { level: 'W', tag: 'Choreographer', msg: 'Skipped 34 frames! The application may be doing too much work on its main thread.' }
+      ];
+
+      simulationInterval = setInterval(() => {
+        const now = new Date();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const ms = String(now.getMilliseconds()).padStart(3, '0');
+        const timeStr = `${mm}-${dd} ${hh}:${min}:${ss}.${ms}`;
+
+        const isSystem = Math.random() < 0.25;
+        let line = '';
+
+        if (isSystem) {
+          const item = simSys[Math.floor(Math.random() * simSys.length)];
+          line = `${timeStr}  1248  1412 ${item.level} ${item.tag}: ${item.msg}`;
+        } else {
+          const app = simApps[Math.floor(Math.random() * simApps.length)];
+          const pid = localSimulatedPids[app.pkg] || 28450;
+          const tid = pid + Math.floor(Math.random() * 15);
+          const logItem = app.logs[Math.floor(Math.random() * app.logs.length)];
+          line = `${timeStr}  ${String(pid).padStart(5, ' ')}  ${String(tid).padStart(5, ' ')} ${logItem.level} ${app.tag}: ${logItem.msg}`;
+        }
+
+        appendLogChunk(line);
+      }, 150);
+
+      // 监听包名输入框更改，更新模拟 PID
+      document.getElementById('inputPkg').addEventListener('input', updateSimulatedPid);
+    }
+
+    // 清空日志
+    function clearLogs() {
+      rawLogs = [];
+      document.getElementById('logTable').innerHTML = '';
+      updateLineCounter();
+    }
+
+    // 导出日志为文件
+    function exportLogs() {
+      const pkg = document.getElementById('inputPkg').value.trim();
+      const filtered = [];
+      for (let i = 0; i < rawLogs.length; i++) {
+        const log = rawLogs[i];
+        if (matchesFilter(log)) {
+          filtered.push(log);
+        }
+      }
+      
+      if (filtered.length === 0) {
+        alert('当前没有可导出的日志');
+        return;
+      }
+      
+      const lines = filtered.map(log => {
+        if (log.isRaw) {
+          return log.rawText;
+        }
+        return `${formatTimeWithYear(log.time)}  ${log.pid}  ${log.tid} ${log.level} ${log.tag}: ${log.msg}`;
+      });
+      
+      const text = lines.join('\n');
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filterDesc = pkg ? `_${pkg.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
+      link.download = `logcat_${dateStr}${filterDesc}.txt`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    // 监控包名输入框更改
+    function onPackageNameChange() {
+      const pkg = document.getElementById('inputPkg').value.trim();
+      if (pkg) {
+        ipcRenderer.send('control-adb', 'track-pid', pkg);
+      } else {
+        trackedPid = '';
+        document.getElementById('pidBadge').textContent = 'PID: -';
+        document.getElementById('pidBadge').classList.remove('active');
+        ipcRenderer.send('control-adb', 'stop-track-pid');
+        applyFilters();
+      }
+    }
+
+    // 实时添加并解析日志块
+    function appendLogChunk(chunk) {
+      const lines = chunk.split('\n');
+      for (let line of lines) {
+        if (!line.trim()) continue;
+        
+        const parsed = parseLogcatLine(line);
+        
+        // 动态解析 ActivityManager 等系统进程拉起日志获取最新的 PID -> PackageName 映射
+        if (parsed && !parsed.isRaw && parsed.tag === 'ActivityManager') {
+          const procMatch = parsed.msg.match(/proc\s+(\d+):([a-zA-Z0-9_\.\/]+)/) || parsed.msg.match(/Process\s+([a-zA-Z0-9_\.]+)\s+\(pid\s+(\d+)\)/);
+          if (procMatch) {
+            let pid, pkg;
+            if (parsed.msg.includes('Process') && parsed.msg.includes('has died')) {
+              // process died, ignore or skip
+            } else if (parsed.msg.includes('Process')) {
+              pkg = procMatch[1];
+              pid = procMatch[2];
+            } else {
+              pid = procMatch[1];
+              pkg = procMatch[2].split('/')[0];
+            }
+            if (pid && pkg) {
+              pidMap[pid] = pkg;
+            }
+          }
+        }
+
+        rawLogs.push(parsed);
+
+        // 如果符合当前筛选器，立即渲染到 DOM 中
+        if (matchesFilter(parsed)) {
+          appendDomRow(parsed);
+        }
+      }
+      
+      // 控制内存/DOM性能：超出最大行数则修剪
+      trimBuffer();
+      updateLineCounter();
+    }
+
+    function appendRawLine(text) {
+      const item = {
+        id: ++logIdCounter,
+        isRaw: true,
+        rawText: text,
+        level: 'W'
+      };
+      rawLogs.push(item);
+      appendDomRow(item);
+      trimBuffer();
+      updateLineCounter();
+    }
+
+    // 正则表达式解析 threadtime 核心逻辑
+    function parseLogcatLine(line) {
+      const match = line.match(THREADTIME_REGEX);
+      if (match) {
+        return {
+          id: ++logIdCounter,
+          isRaw: false,
+          time: match[1],
+          pid: match[2].trim(),
+          tid: match[3].trim(),
+          level: match[4],
+          tag: match[5].trim(),
+          msg: match[6],
+          rawText: line
+        };
+      } else {
+        // 兜底方案：无法通过正则拆分的杂乱日志或系统输出，当作原始文本记录
+        // 提取可能的级别
+        let detectedLevel = 'I';
+        if (line.includes('E/')) detectedLevel = 'E';
+        else if (line.includes('W/')) detectedLevel = 'W';
+        else if (line.includes('D/')) detectedLevel = 'D';
+
+        return {
+          id: ++logIdCounter,
+          isRaw: true,
+          level: detectedLevel,
+          rawText: line
+        };
+      }
+    }
+
+    // 筛选匹配算法
+    function matchesFilter(logItem) {
+      // 1. 最低日志等级过滤
+      const minLevel = document.getElementById('selectLevel').value;
+      const minVal = LEVEL_HIERARCHY[minLevel] || 0;
+      const logVal = LEVEL_HIERARCHY[logItem.level] || 0;
+      if (logVal < minVal) return false;
+
+      // 如果是 Raw 类型的系统消息且未匹配到级别，可酌情放行
+      if (logItem.isRaw) {
+        // 如果输入了 PID 或者包名，但它是 Raw 系统消息，一般剔除
+        const pkg = document.getElementById('inputPkg').value.trim();
+        if (pkg || trackedPid) return false;
+      } else {
+        // 2. 包名/PID 过滤
+        const pkg = document.getElementById('inputPkg').value.trim();
+        if (pkg) {
+          // 如果绑定了包名，优先匹配 PID，如果 app 重启、PID 没更新，这里兜底允许匹配
+          if (trackedPid && logItem.pid !== trackedPid) {
+            return false;
+          } else if (!trackedPid) {
+            // 在 PID 查询出结果前，暂时通过在 Tag/Message 里匹配包名来让用户不丢日志 (部分日志会包含包名)
+            const lowerPkg = pkg.toLowerCase();
+            const msgLower = (logItem.msg || '').toLowerCase();
+            const tagLower = (logItem.tag || '').toLowerCase();
+            if (!msgLower.includes(lowerPkg) && !tagLower.includes(lowerPkg)) {
+              return false;
+            }
+          }
+        }
+      }
+
+      // 3. 关键字检索 (支持正则)
+      const keyword = document.getElementById('inputSearch').value.trim();
+      if (keyword) {
+        try {
+          const regex = new RegExp(keyword, 'i');
+          if (logItem.isRaw) {
+            if (!regex.test(logItem.rawText)) return false;
+          } else {
+            const searchTarget = `${logItem.tag} ${logItem.msg}`;
+            if (!regex.test(searchTarget)) return false;
+          }
+        } catch (e) {
+          // 正则表达式书写过程中产生的格式错误，降级为普通字符串 include
+          if (logItem.isRaw) {
+            if (!logItem.rawText.toLowerCase().includes(keyword.toLowerCase())) return false;
+          } else {
+            const searchTarget = `${logItem.tag} ${logItem.msg}`.toLowerCase();
+            if (!searchTarget.includes(keyword.toLowerCase())) return false;
+          }
+        }
+      }
+
+      return true;
+    }
+
+    function getTagColor(tag) {
+      const colors = [
+        '#9876aa', // 紫色 (Lavender)
+        '#4ec9b0', // 薄荷绿 (Mint)
+        '#c586c0', // 粉紫 (Magenta)
+        '#4fc1ff', // 天蓝 (Light Blue)
+        '#dcdcaa', // 柔黄 (Soft Yellow)
+        '#ce9178', // 珊瑚橙 (Coral)
+        '#85e89d', // 浅绿 (Pale Green)
+        '#79b8ff', // 亮蓝 (Bright Blue)
+        '#b39ddb', // 紫罗兰 (Violet)
+        '#ffab70', // 暖橙 (Warm Orange)
+      ];
+      if (!tag) return colors[0];
+      let hash = 0;
+      for (let i = 0; i < tag.length; i++) {
+        hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const index = Math.abs(hash) % colors.length;
+      return colors[index];
+    }
+
+    function formatTimeWithYear(time) {
+      if (!time) return '';
+      if (/^\d{4}-/.test(time)) return time;
+      const year = new Date().getFullYear();
+      return year + '-' + time;
+    }
+
+    // 讲一条日志渲染插入 DOM 树中
+    function appendDomRow(logItem) {
+      const container = document.getElementById('logTable');
+      const row = document.createElement('div');
+      
+      if (logItem.isRaw) {
+        row.className = `log-row level-raw level-${logItem.level}`;
+        row.innerHTML = linkify(escapeHtml(logItem.rawText));
+      } else {
+        row.className = `log-row level-${logItem.level}`;
+        row.id = `log-line-${logItem.id}`;
+        
+        const resolvedPkg = pidMap[logItem.pid] || '-';
+        row.innerHTML = `
+          <div class="col-time">${formatTimeWithYear(logItem.time)}</div>
+          <div class="col-pid">${logItem.pid}-${logItem.tid}</div>
+          <div class="col-level">${logItem.level}</div>
+          <div class="col-tag" style="color: ${getTagColor(logItem.tag)}" title="${logItem.tag}">${logItem.tag}</div>
+          <div class="col-package" title="${resolvedPkg}">${resolvedPkg}</div>
+          <div class="col-message">${linkify(escapeHtml(logItem.msg))}</div>
+        `;
+      }
+
+      container.appendChild(row);
+
+      // 自动平滑滚动
+      if (isTracking && document.getElementById('chkScroll').checked) {
+        const outer = document.getElementById('logContainer');
+        outer.scrollTop = outer.scrollHeight;
+      }
+    }
+
+    // 清理 DOM 以防止运行卡顿
+    function trimBuffer() {
+      const container = document.getElementById('logTable');
+      const children = container.children;
+      if (children.length > MAX_DOM_LINES) {
+        const removeCount = children.length - MAX_DOM_LINES;
+        for (let i = 0; i < removeCount; i++) {
+          container.removeChild(children[0]);
+        }
+      }
+    }
+
+    // 重新应用全量过滤器 (当选择等级、搜索框变更或 PID 更新时)
+    function applyFilters() {
+      const container = document.getElementById('logTable');
+      container.innerHTML = ''; // 清空当前展示的 DOM
+
+      // 从内存中筛选匹配
+      let displayCount = 0;
+      for (let i = 0; i < rawLogs.length; i++) {
+        const log = rawLogs[i];
+        if (matchesFilter(log)) {
+          appendDomRow(log);
+          displayCount++;
+          if (displayCount >= MAX_DOM_LINES) {
+            break; // 限制单次最大渲染行，提高重绘性能
+          }
+        }
+      }
+      
+      updateLineCounter();
+    }
+
+    function updateLineCounter() {
+      const count = document.getElementById('logTable').children.length;
+      document.getElementById('lineCounter').textContent = `当前展示: ${count} 行 (缓冲区上限: ${MAX_DOM_LINES} 行)`;
+    }
+
+    function linkify(str) {
+      if (!str) return '';
+      const urlRegex = /(https?:\/\/[^\s<>\"]+)/g;
+      return str.replace(urlRegex, function(url) {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #589df6; text-decoration: underline; cursor: pointer;">${url}</a>`;
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
