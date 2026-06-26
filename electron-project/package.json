@@ -18,6 +18,10 @@
   ],
   "author": "Logcat Expert",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xujingfire/android_logcat_viewer.git"
+  },
   "build": {
     "appId": "com.xujingfire.android-logcat-viewer",
     "productName": "Android Logcat Viewer",
