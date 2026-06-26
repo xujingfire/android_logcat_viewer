@@ -5,8 +5,25 @@
 
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { createServer as createViteServer } from 'vite';
 import { spawn, exec, execSync } from 'child_process';
+
+// Fix PATH on macOS to find 'adb'
+if (process.platform === 'darwin') {
+  const commonPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    path.join(os.homedir(), 'Library/Android/sdk/platform-tools')
+  ];
+  const currentPath = process.env.PATH || '';
+  const existingPaths = currentPath.split(':');
+  const newPaths = commonPaths.filter(p => fs.existsSync(p) && !existingPaths.includes(p));
+  if (newPaths.length > 0) {
+    process.env.PATH = [...newPaths, ...existingPaths].join(':');
+  }
+}
 
 const app = express();
 const PORT = 3000;

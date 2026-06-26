@@ -6,6 +6,23 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn, exec, execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+
+// Fix PATH on macOS to find 'adb'
+if (process.platform === 'darwin') {
+  const commonPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    path.join(os.homedir(), 'Library/Android/sdk/platform-tools')
+  ];
+  const currentPath = process.env.PATH || '';
+  const existingPaths = currentPath.split(':');
+  const newPaths = commonPaths.filter(p => fs.existsSync(p) && !existingPaths.includes(p));
+  if (newPaths.length > 0) {
+    process.env.PATH = [...newPaths, ...existingPaths].join(':');
+  }
+}
 
 let mainWindow = null;
 let adbProcess = null;
