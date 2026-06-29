@@ -772,6 +772,80 @@
     let trackedPid = '';
     let isTracking = false;
 
+    // Async Rendering Queue to prevent UI blocking
+    let logQueue = [];
+    let isProcessingQueue = false;
+
+    function processLogQueue() {
+      if (!isTracking || logQueue.length === 0) {
+        isProcessingQueue = false;
+        return;
+      }
+      isProcessingQueue = true;
+
+      // Process logs in small batches per animation frame (e.g., 50 lines)
+      const BATCH_SIZE = 50;
+      const batch = logQueue.splice(0, BATCH_SIZE);
+      const container = document.getElementById('logTable');
+      const fragment = document.createDocumentFragment();
+      let addedToDom = false;
+
+      for (const line of batch) {
+        if (!line.trim()) continue;
+        const parsed = parseLogcatLine(line);
+
+        // Update PID map from ActivityManager logs
+        updatePidMapFromLog(parsed);
+        rawLogs.push(parsed);
+
+        if (matchesFilter(parsed)) {
+          fragment.appendChild(createDomRow(parsed));
+          addedToDom = true;
+        }
+      }
+
+      if (addedToDom) {
+        const outer = document.getElementById('logContainer');
+        const isAtBottom = outer.scrollHeight - outer.scrollTop <= outer.clientHeight + 100;
+
+        container.appendChild(fragment);
+
+        if (isAtBottom && document.getElementById('chkScroll').checked) {
+          outer.scrollTop = outer.scrollHeight;
+        }
+      }
+
+      // Memory & DOM Management
+      const logLimit = MAX_DOM_LINES * 2;
+      if (rawLogs.length > logLimit) {
+        rawLogs.splice(0, rawLogs.length - logLimit);
+      }
+      trimBuffer();
+      updateLineCounter();
+
+      // Schedule next batch
+      requestAnimationFrame(processLogQueue);
+    }
+
+    function updatePidMapFromLog(parsed) {
+      if (parsed && !parsed.isRaw && parsed.tag === 'ActivityManager') {
+        const procMatch = parsed.msg.match(/proc\s+(\d+):([a-zA-Z0-9_\.\/]+)/) ||
+                        parsed.msg.match(/Process\s+([a-zA-Z0-9_\.]+)\s+\(pid\s+(\d+)\)/);
+        if (procMatch) {
+          let pid, pkg;
+          if (parsed.msg.includes('Process') && parsed.msg.includes('has died')) return;
+          if (parsed.msg.includes('Process')) {
+            pkg = procMatch[1]; pid = procMatch[2];
+          } else {
+            pid = procMatch[1]; pkg = procMatch[2].split('/')[0];
+          }
+          if (pid && pkg) pidMap[pid] = pkg;
+        }
+      }
+    }
+
+    // --- Original methods with optimizations ---
+
     // Levels mapping hierarchy
     const LEVEL_HIERARCHY = { 'V': 0, 'D': 1, 'I': 2, 'W': 3, 'E': 4, 'F': 5 };
 
@@ -1141,7 +1215,9 @@
     });
 
     ipcRenderer.on('log-data', (event, dataChunk) => {
-      appendLogChunk(dataChunk);
+      const lines = dataChunk.split('\n');
+      logQueue.push(...lines);
+      if (!isProcessingQueue) processLogQueue();
     });
 
     ipcRenderer.on('log-error', (event, errorText) => {
@@ -1316,7 +1392,8 @@
           line = `${timeStr}  ${String(pid).padStart(5, ' ')}  ${String(tid).padStart(5, ' ')} ${logItem.level} ${app.tag}: ${logItem.msg}`;
         }
 
-        appendLogChunk(line);
+        logQueue.push(line);
+        if (!isProcessingQueue) processLogQueue();
       }, 150);
 
       // 监听包名输入框更改，更新模拟 PID
@@ -1326,6 +1403,7 @@
     // 清空日志
     function clearLogs() {
       rawLogs = [];
+      logQueue = [];
       document.getElementById('logTable').innerHTML = '';
       updateLineCounter();
     }
@@ -1382,70 +1460,6 @@
         ipcRenderer.send('control-adb', 'stop-track-pid');
         applyFilters();
       }
-    }
-
-    // 实时添加并解析日志块
-    function appendLogChunk(chunk) {
-      const lines = chunk.split('\n');
-      const container = document.getElementById('logTable');
-      const fragment = document.createDocumentFragment();
-      let addedAny = false;
-
-      for (let line of lines) {
-        if (!line.trim()) continue;
-        
-        const parsed = parseLogcatLine(line);
-        
-        // 动态解析 ActivityManager 等系统进程拉起日志获取最新的 PID -> PackageName 映射
-        if (parsed && !parsed.isRaw && parsed.tag === 'ActivityManager') {
-          const procMatch = parsed.msg.match(/proc\s+(\d+):([a-zA-Z0-9_\.\/]+)/) || parsed.msg.match(/Process\s+([a-zA-Z0-9_\.]+)\s+\(pid\s+(\d+)\)/);
-          if (procMatch) {
-            let pid, pkg;
-            if (parsed.msg.includes('Process') && parsed.msg.includes('has died')) {
-              // process died, ignore or skip
-            } else if (parsed.msg.includes('Process')) {
-              pkg = procMatch[1];
-              pid = procMatch[2];
-            } else {
-              pid = procMatch[1];
-              pkg = procMatch[2].split('/')[0];
-            }
-            if (pid && pkg) {
-              pidMap[pid] = pkg;
-            }
-          }
-        }
-
-        rawLogs.push(parsed);
-
-        // 如果符合当前筛选器，准备渲染
-        if (matchesFilter(parsed)) {
-          const row = createDomRow(parsed);
-          fragment.appendChild(row);
-          addedAny = true;
-        }
-      }
-
-      // 批量插入 DOM
-      if (addedAny) {
-        container.appendChild(fragment);
-
-        // 自动平滑滚动 (每块数据仅执行一次)
-        if (isTracking && document.getElementById('chkScroll').checked) {
-          const outer = document.getElementById('logContainer');
-          outer.scrollTop = outer.scrollHeight;
-        }
-      }
-      
-      // 控制内存：防止 rawLogs 无限增长（保持 2 倍缓冲区大小以便过滤切换）
-      const logLimit = MAX_DOM_LINES * 2;
-      if (rawLogs.length > logLimit) {
-        rawLogs.splice(0, rawLogs.length - logLimit);
-      }
-
-      // 控制 DOM 性能：超出最大行数则修剪
-      trimBuffer();
-      updateLineCounter();
     }
 
     function appendRawLine(text) {
@@ -1640,6 +1654,20 @@
     function updateLineCounter() {
       const count = document.getElementById('logTable').children.length;
       document.getElementById('lineCounter').textContent = `当前展示: ${count} 行 (缓冲区上限: ${MAX_DOM_LINES} 行)`;
+    }
+
+    // 清理 DOM 以防止运行卡顿
+    function trimBuffer() {
+      const container = document.getElementById('logTable');
+      if (container.children.length > MAX_DOM_LINES) {
+        const removeCount = container.children.length - MAX_DOM_LINES;
+        // Batch remove from top
+        for (let i = 0; i < removeCount; i++) {
+          if (container.firstChild) {
+            container.removeChild(container.firstChild);
+          }
+        }
+      }
     }
 
     function linkify(str) {
