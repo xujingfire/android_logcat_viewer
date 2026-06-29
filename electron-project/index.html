@@ -1387,6 +1387,10 @@
     // 实时添加并解析日志块
     function appendLogChunk(chunk) {
       const lines = chunk.split('\n');
+      const container = document.getElementById('logTable');
+      const fragment = document.createDocumentFragment();
+      let addedAny = false;
+
       for (let line of lines) {
         if (!line.trim()) continue;
         
@@ -1414,13 +1418,32 @@
 
         rawLogs.push(parsed);
 
-        // 如果符合当前筛选器，立即渲染到 DOM 中
+        // 如果符合当前筛选器，准备渲染
         if (matchesFilter(parsed)) {
-          appendDomRow(parsed);
+          const row = createDomRow(parsed);
+          fragment.appendChild(row);
+          addedAny = true;
+        }
+      }
+
+      // 批量插入 DOM
+      if (addedAny) {
+        container.appendChild(fragment);
+
+        // 自动平滑滚动 (每块数据仅执行一次)
+        if (isTracking && document.getElementById('chkScroll').checked) {
+          const outer = document.getElementById('logContainer');
+          outer.scrollTop = outer.scrollHeight;
         }
       }
       
-      // 控制内存/DOM性能：超出最大行数则修剪
+      // 控制内存：防止 rawLogs 无限增长（保持 2 倍缓冲区大小以便过滤切换）
+      const logLimit = MAX_DOM_LINES * 2;
+      if (rawLogs.length > logLimit) {
+        rawLogs.splice(0, rawLogs.length - logLimit);
+      }
+
+      // 控制 DOM 性能：超出最大行数则修剪
       trimBuffer();
       updateLineCounter();
     }
@@ -1433,7 +1456,8 @@
         level: 'W'
       };
       rawLogs.push(item);
-      appendDomRow(item);
+      const container = document.getElementById('logTable');
+      container.appendChild(createDomRow(item));
       trimBuffer();
       updateLineCounter();
     }
@@ -1556,9 +1580,8 @@
       return year + '-' + time;
     }
 
-    // 讲一条日志渲染插入 DOM 树中
-    function appendDomRow(logItem) {
-      const container = document.getElementById('logTable');
+    // 创建一条日志的 DOM 节点 (不直接插入)
+    function createDomRow(logItem) {
       const row = document.createElement('div');
       
       if (logItem.isRaw) {
@@ -1578,46 +1601,39 @@
           <div class="col-message">${linkify(escapeHtml(logItem.msg))}</div>
         `;
       }
-
-      container.appendChild(row);
-
-      // 自动平滑滚动
-      if (isTracking && document.getElementById('chkScroll').checked) {
-        const outer = document.getElementById('logContainer');
-        outer.scrollTop = outer.scrollHeight;
-      }
-    }
-
-    // 清理 DOM 以防止运行卡顿
-    function trimBuffer() {
-      const container = document.getElementById('logTable');
-      const children = container.children;
-      if (children.length > MAX_DOM_LINES) {
-        const removeCount = children.length - MAX_DOM_LINES;
-        for (let i = 0; i < removeCount; i++) {
-          container.removeChild(children[0]);
-        }
-      }
+      return row;
     }
 
     // 重新应用全量过滤器 (当选择等级、搜索框变更或 PID 更新时)
     function applyFilters() {
       const container = document.getElementById('logTable');
       container.innerHTML = ''; // 清空当前展示的 DOM
+      const fragment = document.createDocumentFragment();
 
-      // 从内存中筛选匹配
+      // 从内存中筛选匹配最新的日志
       let displayCount = 0;
-      for (let i = 0; i < rawLogs.length; i++) {
+      // 逆序查找，确保展示的是最新的日志
+      const matches = [];
+      for (let i = rawLogs.length - 1; i >= 0; i--) {
         const log = rawLogs[i];
         if (matchesFilter(log)) {
-          appendDomRow(log);
+          matches.push(log);
           displayCount++;
-          if (displayCount >= MAX_DOM_LINES) {
-            break; // 限制单次最大渲染行，提高重绘性能
-          }
+          if (displayCount >= MAX_DOM_LINES) break;
         }
       }
-      
+
+      // 恢复正序插入 fragment
+      for (let i = matches.length - 1; i >= 0; i--) {
+        fragment.appendChild(createDomRow(matches[i]));
+      }
+
+      container.appendChild(fragment);
+
+      // 过滤器切换后，自动滚动到底部
+      const outer = document.getElementById('logContainer');
+      outer.scrollTop = outer.scrollHeight;
+
       updateLineCounter();
     }
 
