@@ -1024,8 +1024,8 @@
     }, 3000);
 
     ipcRenderer.on('pid-map-updated', (event, updatedMap) => {
+      // Only update the map, don't re-render everything to avoid clearing user selection
       pidMap = { ...pidMap, ...updatedMap };
-      applyFilters();
     });
 
     function getSelectedDeviceId() {
@@ -1130,12 +1130,13 @@
         trackedPid = data.pid;
         pidBadge.textContent = `PID: ${trackedPid} (${data.packageName})`;
         pidBadge.classList.add('active');
-        applyFilters();
+        // Only re-apply filters if we are actively tracking, to avoid jumping in paused state
+        if (isTracking) applyFilters();
       } else {
         trackedPid = '';
         pidBadge.textContent = `PID: - (未运行)`;
         pidBadge.classList.remove('active');
-        applyFilters();
+        if (isTracking) applyFilters();
       }
     });
 
