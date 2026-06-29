@@ -258,13 +258,6 @@ ipcMain.on('check-running-packages', (event, deviceId) => {
     const lines = stdout.split('\n');
     const packages = new Set();
     
-    // 注入常见的应用包名，防止 ps 过滤时缺失
-    packages.add('com.tencent.mm');
-    packages.add('com.ss.android.ugc.aweme');
-    packages.add('com.android.systemui');
-    packages.add('com.google.android.gms');
-    packages.add('com.tuyoo.doudizhu.android3d'); // 斗地主
-    
     // 匹配类似 com.example.package 这样至少包含一个点的进程名字
     const pkgRegex = /[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]+/i;
     

@@ -1,6 +1,6 @@
 {
   "name": "android-logcat-viewer",
-  "version": "1.0.4",
+  "version": "1.0.0",
   "description": "A high-fidelity lightweight cross-platform Android Logcat viewer styled after Android Studio.",
   "main": "main.js",
   "scripts": {

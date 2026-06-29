@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Play, 
   Square, 
@@ -22,8 +22,7 @@ import {
   AlertTriangle, 
   Monitor, 
   Smartphone, 
-  Code,
-  Sparkles
+  Code
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -108,13 +107,12 @@ export default function App() {
   
   // Connection state
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string>('sim-pixel8');
+  const [selectedDevice, setSelectedDevice] = useState<string>('');
   const [adbAvailable, setAdbAvailable] = useState<boolean>(false);
   const [isFetchingDevices, setIsFetchingDevices] = useState<boolean>(false);
 
   // Streaming state
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
-  const [mode, setMode] = useState<'simulated' | 'real'>('simulated');
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<LogItem[]>([]);
   
@@ -126,16 +124,8 @@ export default function App() {
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [maxLines, setMaxLines] = useState<number>(1500);
 
-  // PID to package/process name mapping
-  const [pidMap, setPidMap] = useState<Record<string, string>>({
-    '8210': 'com.tencent.mm',
-    '13912': 'com.ss.android.ugc.aweme',
-    '1248': 'com.android.systemui',
-    '2145': 'com.google.android.gms',
-    '28450': 'com.example.logcatdemo',
-    '1412': 'system_server',
-    '1282': 'system_server'
-  });
+  // PID to package/process name mapping (由真实设备 ps 输出动态填充)
+  const [pidMap, setPidMap] = useState<Record<string, string>>({});
 
   // UI state
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
@@ -237,17 +227,14 @@ export default function App() {
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const logIdCounter = useRef<number>(0);
 
-  // Multi-app mock packages autocomplete
-  const samplePackages = [
-    { name: '微信 (WeChat)', pkg: 'com.tencent.mm' },
-    { name: '抖音 (TikTok)', pkg: 'com.ss.android.ugc.aweme' },
-    { name: '系统 UI (SystemUI)', pkg: 'com.android.systemui' },
-    { name: '谷歌服务 (GMS)', pkg: 'com.google.android.gms' },
-    { name: '演示 App (DemoApp)', pkg: 'com.example.logcatdemo' }
-  ];
-
   // ADB threadtime regex
   const THREADTIME_REGEX = /^(\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.*?):\s(.*)$/;
+
+  // 设备上真实运行中的进程包名（由 ps 输出动态解析，用于包名自动补全）
+  const runningPackages = useMemo(() => {
+    const names = Object.values(pidMap).filter(name => name.includes('.'));
+    return Array.from(new Set(names)).sort();
+  }, [pidMap]);
 
   // Check connected ADB devices on mount
   const fetchDevices = async () => {
@@ -258,14 +245,12 @@ export default function App() {
       setAdbAvailable(data.adbAvailable);
       setDevices(data.devices || []);
       
-      // If real ADB has devices, switch selected device to it
-      const activeDevice = data.devices.find((d: any) => d.status === 'device');
+      // 选中第一台在线真机
+      const activeDevice = (data.devices || []).find((d: any) => d.status === 'device');
       if (activeDevice) {
         setSelectedDevice(activeDevice.id);
-        setMode('real');
       } else {
-        setSelectedDevice('sim-pixel8');
-        setMode('simulated');
+        setSelectedDevice('');
       }
     } catch (e) {
       console.error('Failed to query devices:', e);
@@ -288,9 +273,8 @@ export default function App() {
         return;
       }
       try {
-        const isSimulated = mode === 'simulated' ? 'true' : 'false';
-        const deviceParam = selectedDevice && !selectedDevice.startsWith('sim-') ? `&deviceId=${encodeURIComponent(selectedDevice)}` : '';
-        const res = await fetch(`/api/pid?packageName=${encodeURIComponent(packageName)}&simulated=${isSimulated}${deviceParam}`);
+        const deviceParam = selectedDevice ? `&deviceId=${encodeURIComponent(selectedDevice)}` : '';
+        const res = await fetch(`/api/pid?packageName=${encodeURIComponent(packageName)}${deviceParam}`);
         const data = await res.json();
         setTrackedPid(data.pid || '');
       } catch (e) {
@@ -309,14 +293,14 @@ export default function App() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [packageName, mode, selectedDevice]);
+  }, [packageName, selectedDevice]);
 
   // Poll PS list for real device to resolve package names
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
     const fetchPsMap = async () => {
-      if (mode !== 'real' || !selectedDevice || selectedDevice.startsWith('sim-')) {
+      if (!selectedDevice) {
         return;
       }
       try {
@@ -331,7 +315,7 @@ export default function App() {
       }
     };
 
-    if (mode === 'real' && selectedDevice && !selectedDevice.startsWith('sim-')) {
+    if (selectedDevice) {
       fetchPsMap();
       interval = setInterval(fetchPsMap, 4000);
     }
@@ -339,7 +323,7 @@ export default function App() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [mode, selectedDevice]);
+  }, [selectedDevice]);
 
   // Start logcat stream
   const startStream = (clearBufferOnStart = true) => {
@@ -354,10 +338,9 @@ export default function App() {
 
     setIsStreaming(true);
 
-    const streamMode = mode;
     const clearParam = clearBufferOnStart ? 'true' : 'false';
-    const deviceParam = selectedDevice && !selectedDevice.startsWith('sim-') ? `&deviceId=${encodeURIComponent(selectedDevice)}` : '';
-    const sseUrl = `/api/stream-logs?mode=${streamMode}&clearBuffer=${clearParam}${deviceParam}`;
+    const deviceParam = selectedDevice ? `&deviceId=${encodeURIComponent(selectedDevice)}` : '';
+    const sseUrl = `/api/stream-logs?clearBuffer=${clearParam}${deviceParam}`;
 
     const eventSource = new EventSource(sseUrl);
     sseRef.current = eventSource;
@@ -399,7 +382,7 @@ export default function App() {
     setIsStreaming(false);
   };
 
-  // Restart streaming if device/mode shifts while streaming
+  // Restart streaming if device shifts while streaming
   useEffect(() => {
     if (isStreaming) {
       const timer = setTimeout(() => {
@@ -537,24 +520,6 @@ export default function App() {
     });
   };
 
-  // Trigger simulated actions (crash or cold-start) on backend
-  const triggerSimulatedAction = async (action: 'crash' | 'cold_start') => {
-    const pkg = packageName || 'com.example.logcatdemo';
-    if (!packageName) {
-      setPackageName('com.example.logcatdemo');
-    }
-    
-    try {
-      await fetch('/api/simulate-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, packageName: pkg })
-      });
-    } catch (e) {
-      console.error('Failed to trigger simulation:', e);
-    }
-  };
-
   // Filtering Logic
   useEffect(() => {
     const LEVEL_HIERARCHY: { [key: string]: number } = { 'V': 0, 'D': 1, 'I': 2, 'W': 3, 'E': 4, 'F': 5 };
@@ -622,23 +587,13 @@ export default function App() {
     }
   }, [filteredLogs, autoScroll, isStreaming]);
 
-  // Auto start streaming on mount (with simulated logs by default)
+  // Auto start streaming on mount
   useEffect(() => {
     startStream(true);
     return () => {
       if (sseRef.current) sseRef.current.close();
     };
-  }, [mode]);
-
-  // Handle switching modes
-  const handleModeChange = (newMode: 'simulated' | 'real') => {
-    setMode(newMode);
-    if (newMode === 'real') {
-      setSelectedDevice(devices.length > 0 ? devices[0].id : 'no-real-device');
-    } else {
-      setSelectedDevice('sim-pixel8');
-    }
-  };
+  }, []);
 
   // Electron Source Code mapping
   const electronFiles = {
@@ -1316,21 +1271,10 @@ app.on('quit', () => {
                     <select
                       id="select-device"
                       value={selectedDevice}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setSelectedDevice(val);
-                        const newMode = val.startsWith('sim-') ? 'simulated' : 'real';
-                        setMode(newMode);
-                      }}
+                      onChange={(e) => setSelectedDevice(e.target.value)}
                       className="bg-[#45494a] border border-[#646464] text-white px-2 py-0.5 rounded text-[11px] font-mono outline-none cursor-pointer max-w-[180px] focus:border-[#3b82f6]"
                     >
-                      <optgroup label="模拟调试设备 (Virtual)" className="bg-[#3c3f41] text-[#888]">
-                        <option value="sim-pixel8" className="text-white bg-[#2b2b2b]">Google Pixel 8 Pro (8HGX249FA81039) Android 14, API 34</option>
-                        <option value="sim-emulator" className="text-white bg-[#2b2b2b]">Android SDK Emulator (emulator-5554) Android 13, API 33</option>
-                        <option value="sim-s24" className="text-white bg-[#2b2b2b]">Samsung Galaxy S24 Ultra (SAMSUNG_S24_ULTRA_01) Android 14, API 34</option>
-                      </optgroup>
-                      
-                      {devices.length > 0 && (
+                      {devices.length > 0 ? (
                         <optgroup label="物理连接设备 (Real ADB)" className="bg-[#3c3f41] text-[#888]">
                           {devices.map(d => {
                             const verInfo = d.release && d.sdk ? ` Android ${d.release}, API ${d.sdk}` : '';
@@ -1341,12 +1285,8 @@ app.on('quit', () => {
                             );
                           })}
                         </optgroup>
-                      )}
-                      
-                      {devices.length === 0 && (
-                        <optgroup label="物理连接设备 (Real ADB)" className="bg-[#3c3f41] text-[#888]">
-                          <option value="no-real-device" disabled className="text-[#666] bg-[#2b2b2b]">未检测到连接设备 (请在右侧查看指南)</option>
-                        </optgroup>
+                      ) : (
+                        <option value="" disabled className="text-[#666] bg-[#2b2b2b]">未检测到连接设备 (请在右侧查看指南)</option>
                       )}
                     </select>
                   </div>
@@ -1358,15 +1298,15 @@ app.on('quit', () => {
                       <input
                         id="input-package"
                         type="text"
-                        placeholder="e.g. com.tencent.mm"
+                        placeholder="e.g. com.example.app"
                         value={packageName}
                         onChange={(e) => setPackageName(e.target.value)}
                         list="react-packages-datalist"
                         className="bg-[#45494a] border border-[#646464] text-white px-2 py-0.5 rounded text-[11px] font-mono outline-none w-48 placeholder-[#666] focus:border-[#3b82f6]"
                       />
                       <datalist id="react-packages-datalist">
-                        {samplePackages.map(p => (
-                          <option key={p.pkg} value={p.pkg}>{p.name}</option>
+                        {runningPackages.map(pkg => (
+                          <option key={pkg} value={pkg}>{pkg}</option>
                         ))}
                       </datalist>
                       {packageName && (
@@ -1657,76 +1597,51 @@ app.on('quit', () => {
                     </button>
                   </div>
 
-                  <div className="mt-1 flex flex-col gap-1.5">
-                    <label className="text-[#888888] text-[11px]">模式选择:</label>
-                    <div className="grid grid-cols-2 gap-1 bg-[#2b2b2b] p-0.5 rounded border border-[#444]">
-                      <button
-                        onClick={() => handleModeChange('simulated')}
-                        className={`py-1 rounded text-[10px] font-medium cursor-pointer transition-colors ${
-                          mode === 'simulated' 
-                            ? 'bg-[#3c3f41] text-white shadow-sm' 
-                            : 'text-[#888888] hover:text-[#bbbbbb]'
-                        }`}
-                      >
-                        模拟沙盒模式
-                      </button>
-                      <button
-                        onClick={() => handleModeChange('real')}
-                        className={`py-1 rounded text-[10px] font-medium cursor-pointer transition-colors ${
-                          mode === 'real' 
-                            ? 'bg-[#3c3f41] text-white shadow-sm' 
-                            : 'text-[#888888] hover:text-[#bbbbbb]'
-                        }`}
-                      >
-                        USB 真机模式
-                      </button>
-                    </div>
-                  </div>
-
                   <div className="mt-2 text-[11px] bg-[#2b2b2b] p-2 rounded border border-[#323232] flex flex-col gap-1">
                     <span className="text-[#bbbbbb] font-semibold">
-                      {mode === 'simulated' ? '✓ 高保真模拟服务已激活' : '⚡ 尝试挂载系统 ADB 进程'}
+                      {adbAvailable ? '⚡ 已挂载系统 ADB 进程' : '⚠ 未检测到 ADB 环境'}
                     </span>
                     <span className="text-[#888888] leading-normal text-[10px]">
-                      {mode === 'simulated' 
-                        ? '由云端服务端进程输出各经典App线程与GC事件，便于在浏览器直接预览和调试筛选性能。'
-                        : adbAvailable 
-                          ? '已检测到本地 ADB！若设备连接，将触发 adb logcat 数据直连。'
-                          : '未检测到容器内 ADB 守护。如果导出到本地使用 Electron 运行，将完美支持物理连接。'}
+                      {adbAvailable 
+                        ? '已检测到运行服务的机器上的 ADB。通过 USB 连接真机并开启调试后，将直连 adb logcat 数据。'
+                        : '未检测到 ADB。请在运行服务的机器上安装 Android platform-tools，并通过 USB 连接真机后刷新。'}
                     </span>
                   </div>
                 </div>
 
-                {/* Section B: Autocomplete packages shortcut */}
+                {/* Section B: 运行中进程快速追踪 */}
                 <div className="flex flex-col gap-2 border-b border-[#323232] pb-4">
                   <h3 className="font-semibold text-[#ffffff] flex items-center gap-1 text-[11px] uppercase tracking-wider">
                     <SlidersHorizontal size={13} className="text-[#39c039]" />
-                    预设包名快速追踪
+                    运行中进程快速追踪
                   </h3>
-                  <div className="flex flex-col gap-1.5 mt-1">
-                    {samplePackages.map((item) => (
-                      <button
-                        key={item.pkg}
-                        onClick={() => {
-                          setPackageName(item.pkg);
-                        }}
-                        className={`w-full text-left p-1.5 rounded border text-[11px] font-mono transition-all cursor-pointer flex justify-between items-center ${
-                          packageName === item.pkg
-                            ? 'bg-[#1e5a2f]/20 border-[#39c039] text-[#39c039]'
-                            : 'bg-[#2b2b2b] border-[#444] text-[#bbbbbb] hover:border-[#646464] hover:text-white'
-                        }`}
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-[10px] text-[#888888]">{item.name}</span>
-                          <span className="text-[11px]">{item.pkg}</span>
-                        </div>
-                        {packageName === item.pkg && (
-                          <span className="text-[10px] bg-[#1e5a2f] text-white px-1 py-0.5 rounded scale-90">
-                            已追踪
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                  <div className="flex flex-col gap-1.5 mt-1 max-h-[260px] overflow-y-auto">
+                    {runningPackages.length === 0 ? (
+                      <span className="text-[10px] text-[#888888] leading-normal">
+                        {selectedDevice ? '正在读取设备进程列表…' : '连接真机后将自动列出运行中的进程包名。'}
+                      </span>
+                    ) : (
+                      runningPackages.map((pkg) => (
+                        <button
+                          key={pkg}
+                          onClick={() => {
+                            setPackageName(pkg);
+                          }}
+                          className={`w-full text-left p-1.5 rounded border text-[11px] font-mono transition-all cursor-pointer flex justify-between items-center ${
+                            packageName === pkg
+                              ? 'bg-[#1e5a2f]/20 border-[#39c039] text-[#39c039]'
+                              : 'bg-[#2b2b2b] border-[#444] text-[#bbbbbb] hover:border-[#646464] hover:text-white'
+                          }`}
+                        >
+                          <span className="text-[11px] truncate">{pkg}</span>
+                          {packageName === pkg && (
+                            <span className="text-[10px] bg-[#1e5a2f] text-white px-1 py-0.5 rounded scale-90 shrink-0 ml-1">
+                              已追踪
+                            </span>
+                          )}
+                        </button>
+                      ))
+                    )}
                   </div>
 
                   {packageName && (
@@ -1738,40 +1653,6 @@ app.on('quit', () => {
                     </div>
                   )}
                 </div>
-
-                {/* Section C: Live Interactive Sandbox triggers */}
-                {mode === 'simulated' && (
-                  <div className="flex flex-col gap-2.5">
-                    <h3 className="font-semibold text-[#ffffff] flex items-center gap-1 text-[11px] uppercase tracking-wider">
-                      <Sparkles size={13} className="text-[#39c039]" />
-                      沙盒动态事件触发器
-                    </h3>
-                    <p className="text-[10px] text-[#888888] leading-normal">
-                      你可以随意模拟被追踪 App 的冷启动或发生崩溃异常，观察日志输出、PID 重启更新和 Darcula 级别渲染。
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 mt-1">
-                      <button
-                        onClick={() => triggerSimulatedAction('cold_start')}
-                        className="py-1.5 px-2 bg-[#2b2b2b] hover:bg-[#323232] border border-[#555] rounded text-white font-medium text-[11px] text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-1"
-                      >
-                        <span className="text-[10px] text-[#888888]">模拟进程</span>
-                        <span>冷启动 🚀</span>
-                      </button>
-                      <button
-                        onClick={() => triggerSimulatedAction('crash')}
-                        className="py-1.5 px-2 bg-[#4a1d1d] hover:bg-[#5f2525] border border-red-800 rounded text-red-200 font-medium text-[11px] text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-1"
-                      >
-                        <span className="text-[10px] text-red-300">强制触发</span>
-                        <span>Java 闪退 💥</span>
-                      </button>
-                    </div>
-                    {packageName && (
-                      <span className="text-[10px] text-[#888888] italic text-center mt-0.5">
-                        操作将针对: {packageName}
-                      </span>
-                    )}
-                  </div>
-                )}
 
               </div>
             </motion.div>

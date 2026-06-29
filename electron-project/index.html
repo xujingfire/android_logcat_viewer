@@ -552,10 +552,7 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 2px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>设备选择:
       </label>
       <select id="selectDevice" class="select-control" style="width: 220px;" onchange="onDeviceChange()">
-        <optgroup label="模拟调试设备 (Virtual)">
-          <option value="sim-pixel8">Google Pixel 8 Pro (8HGX249FA81039) [模拟]</option>
-          <option value="sim-emulator">Android SDK Emulator (emulator-5554) [模拟]</option>
-        </optgroup>
+        <option value="" disabled selected>未检测到设备</option>
       </select>
     </div>
 
@@ -565,13 +562,7 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 2px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>应用包名:
       </label>
       <input id="inputPkg" type="text" class="input-control" style="width: 180px;" list="packagesDatalist" placeholder="e.g. com.example.app" onchange="onPackageNameChange()">
-      <datalist id="packagesDatalist">
-        <option value="com.tencent.mm">微信 (WeChat)</option>
-        <option value="com.ss.android.ugc.aweme">抖音 (TikTok)</option>
-        <option value="com.android.systemui">系统 UI (SystemUI)</option>
-        <option value="com.google.android.gms">谷歌服务 (GMS)</option>
-        <option value="com.tuyoo.doudizhu.android3d">斗地主 (Doudizhu)</option>
-      </datalist>
+      <datalist id="packagesDatalist"></datalist>
     </div>
 
     <!-- Log Level Select -->
@@ -853,25 +844,8 @@
     // Format: "06-25 14:32:05.123  1024  2048 I ActivityManager: Message content here"
     const THREADTIME_REGEX = /^(\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.*?):\s(.*)$/;
 
-    // 局部仿真定时器
-    let simulationInterval = null;
-    let localSimulatedPids = {
-      'com.tencent.mm': 8210,
-      'com.ss.android.ugc.aweme': 13912,
-      'com.android.systemui': 1248,
-      'com.google.android.gms': 2145,
-      'com.tuyoo.doudizhu.android3d': 28450
-    };
-
-    let pidMap = {
-      '8210': 'com.tencent.mm',
-      '13912': 'com.ss.android.ugc.aweme',
-      '1248': 'com.android.systemui',
-      '2145': 'com.google.android.gms',
-      '28450': 'com.example.logcatdemo',
-      '1412': 'system_server',
-      '1282': 'system_server'
-    };
+    // PID -> 进程名 映射（由真实设备的 ps 输出动态填充）
+    let pidMap = {};
 
     // --- Display & Colors Customization Persistence ---
     let colWidths = {
@@ -1091,7 +1065,7 @@
     setInterval(() => {
       ipcRenderer.send('check-devices');
       const deviceId = getSelectedDeviceId();
-      if (deviceId && !deviceId.startsWith('sim-')) {
+      if (deviceId) {
         ipcRenderer.send('check-running-packages', deviceId);
         ipcRenderer.send('get-pid-map', deviceId);
       }
@@ -1104,7 +1078,7 @@
 
     function getSelectedDeviceId() {
       const selectDevice = document.getElementById('selectDevice');
-      return selectDevice ? selectDevice.value : 'sim-pixel8';
+      return selectDevice ? selectDevice.value : '';
     }
 
     ipcRenderer.on('devices-list', (event, devices) => {
@@ -1113,14 +1087,6 @@
       
       // 保存现有的选项并重建
       selectDevice.innerHTML = '';
-      
-      const virtualGroup = document.createElement('optgroup');
-      virtualGroup.label = "模拟调试设备 (Virtual)";
-      virtualGroup.innerHTML = `
-        <option value="sim-pixel8">Google Pixel 8 Pro (8HGX249FA81039) Android 14, API 34 [模拟]</option>
-        <option value="sim-emulator">Android SDK Emulator (emulator-5554) Android 13, API 33 [模拟]</option>
-      `;
-      selectDevice.appendChild(virtualGroup);
       
       if (devices && devices.length > 0) {
         const realGroup = document.createElement('optgroup');
@@ -1136,18 +1102,22 @@
           realGroup.appendChild(opt);
         });
         selectDevice.appendChild(realGroup);
+      } else {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = '未检测到设备';
+        selectDevice.appendChild(placeholder);
       }
       
-      // 尽可能还原先前的选择
-      if (previousValue && Array.from(selectDevice.options).some(opt => opt.value === previousValue)) {
+      // 尽可能还原先前的选择，否则优先选中在线真机
+      if (previousValue && Array.from(selectDevice.options).some(opt => opt.value === previousValue && !opt.disabled)) {
         selectDevice.value = previousValue;
       } else {
-        // 如果有真实设备在线，优先选择真实设备
         const activeRealDevice = devices.find(d => d.status === 'device');
         if (activeRealDevice) {
           selectDevice.value = activeRealDevice.id;
-        } else {
-          selectDevice.value = 'sim-pixel8';
         }
       }
       
@@ -1159,16 +1129,9 @@
         deviceBadge.style.color = '#39c039';
         deviceBadge.style.borderColor = 'rgba(57,192,57,0.4)';
       } else {
-        const currentVal = selectDevice.value;
-        if (currentVal && currentVal.startsWith('sim-')) {
-          deviceBadge.textContent = '本地仿真模式运行中';
-          deviceBadge.style.color = '#589df6';
-          deviceBadge.style.borderColor = 'rgba(88,157,246,0.4)';
-        } else {
-          deviceBadge.textContent = '未连接物理真机';
-          deviceBadge.style.color = '#888888';
-          deviceBadge.style.borderColor = '#444';
-        }
+        deviceBadge.textContent = '未连接物理真机';
+        deviceBadge.style.color = '#888888';
+        deviceBadge.style.borderColor = '#444';
       }
     });
 
@@ -1176,24 +1139,10 @@
       const datalist = document.getElementById('packagesDatalist');
       if (!datalist) return;
       
-      // 保留默认预设
-      const presets = [
-        { pkg: 'com.tencent.mm', name: '微信 (WeChat)' },
-        { pkg: 'com.ss.android.ugc.aweme', name: '抖音 (TikTok)' },
-        { pkg: 'com.android.systemui', name: '系统 UI (SystemUI)' },
-        { pkg: 'com.google.android.gms', name: '谷歌服务 (GMS)' },
-        { pkg: 'com.tuyoo.doudizhu.android3d', name: '斗地主 (Doudizhu)' }
-      ];
-      
+      // 仅展示设备上真实运行中的进程
       let html = '';
-      presets.forEach(p => {
-        html += `<option value="${p.pkg}">${p.name}</option>`;
-      });
-      
       packages.forEach(pkg => {
-        if (!presets.some(p => p.pkg === pkg)) {
-          html += `<option value="${pkg}">运行中进程: ${pkg}</option>`;
-        }
+        html += `<option value="${pkg}">运行中进程: ${pkg}</option>`;
       });
       datalist.innerHTML = html;
     });
@@ -1248,39 +1197,32 @@
 
     // 开始抓取
     function startListening() {
-      // 停止上一轮可能的仿真/ADB
+      // 停止上一轮可能的 ADB 进程
       stopListeningOnly();
-      
+
+      const deviceId = getSelectedDeviceId();
+      const statusText = document.getElementById('statusText');
+
+      if (!deviceId) {
+        statusText.textContent = '未检测到可用设备，请通过 USB 连接真机并开启调试后重试';
+        statusText.style.color = '#e2a007';
+        return;
+      }
+
       isTracking = true;
       document.getElementById('btnStart').disabled = true;
       document.getElementById('btnStop').disabled = false;
-      
-      const deviceId = getSelectedDeviceId();
-      const statusText = document.getElementById('statusText');
-      const pidBadge = document.getElementById('pidBadge');
-      
-      if (deviceId && !deviceId.startsWith('sim-')) {
-        statusText.textContent = `正在连接物理设备 [${deviceId}] 实时捕获中...`;
-        statusText.style.color = '#39c039';
-        
-        // 启动进程
-        ipcRenderer.send('control-adb', 'start', null, deviceId);
-        onPackageNameChange();
-      } else {
-        statusText.textContent = `正在启动本地高保真日志仿真模拟器 [${deviceId === 'sim-pixel8' ? 'Pixel 8 Pro' : 'Emulator'}]...`;
-        statusText.style.color = '#589df6';
-        
-        // 启动本地仿真
-        startLocalSimulation();
-      }
+
+      statusText.textContent = `正在连接物理设备 [${deviceId}] 实时捕获中...`;
+      statusText.style.color = '#39c039';
+
+      // 启动 adb logcat 进程
+      ipcRenderer.send('control-adb', 'start', null, deviceId);
+      onPackageNameChange();
     }
 
     // 仅停止，不修改 UI 禁用状态，防循环覆盖
     function stopListeningOnly() {
-      if (simulationInterval) {
-        clearInterval(simulationInterval);
-        simulationInterval = null;
-      }
       ipcRenderer.send('control-adb', 'stop');
     }
 
@@ -1295,109 +1237,6 @@
       statusText.style.color = '#888888';
 
       stopListeningOnly();
-    }
-
-    // 本地高保真日志仿真逻辑
-    function startLocalSimulation() {
-      if (simulationInterval) clearInterval(simulationInterval);
-      
-      appendRawLine(`[SYSTEM] 正在初始化高保真 Android Logcat 本地仿真器...`);
-      appendRawLine(`[SYSTEM] 提示: 仿真模式会模拟产生系统与常用App的真实日志，包名和过滤条件仍然完全可用。`);
-      
-      // 更新 PID 状态
-      const updateSimulatedPid = () => {
-        const pkg = document.getElementById('inputPkg').value.trim();
-        const pidBadge = document.getElementById('pidBadge');
-        if (pkg) {
-          trackedPid = localSimulatedPids[pkg] || "28450";
-          pidBadge.textContent = `PID: ${trackedPid} (${pkg})`;
-          pidBadge.classList.add('active');
-        } else {
-          trackedPid = '';
-          pidBadge.textContent = `PID: -`;
-          pidBadge.classList.remove('active');
-        }
-        applyFilters();
-      };
-      updateSimulatedPid();
-
-      const simApps = [
-        {
-          pkg: 'com.tencent.mm',
-          tag: 'MicroMsg.MMSync',
-          logs: [
-            { level: 'I', msg: 'SyncTask started, trigger reason: manual_refresh_pull' },
-            { level: 'D', msg: 'Checking db file integrity... MMSync.db state: OK' },
-            { level: 'I', msg: 'Network request: get_new_messages, size: 450 bytes' },
-            { level: 'V', msg: 'MMSync task completed successfully, connection keep-alive = true' }
-          ]
-        },
-        {
-          pkg: 'com.ss.android.ugc.aweme',
-          tag: 'TikTokPlayer',
-          logs: [
-            { level: 'I', msg: 'Player prepareVideoAsync, videoId: aweme_v2_9103982429' },
-            { level: 'D', msg: 'VideoEngine setDataSource: https://v.tiktokcdn.com/9103982429.mp4' },
-            { level: 'W', msg: 'Heavy frame drop detected! Skipped 15 frames during rendering transition' },
-            { level: 'I', msg: 'Player state transitioned: STATE_PREPARED -> STATE_PLAYING' }
-          ]
-        },
-        {
-          pkg: 'com.tuyoo.doudizhu.android3d',
-          tag: 'Unity',
-          logs: [
-            { level: 'I', msg: '[ErrorReporter][07:22:12.338] 开始初始化 SDK 核心模块' },
-            { level: 'D', msg: 'Framework.QPDebug:OutputToConsole -> Active Scene: LobbyMain_v3' },
-            { level: 'W', msg: 'AssetBundleManager: LoadAssetAsync failed for profile_frame_9.png' },
-            { level: 'E', msg: 'NetworkError: Socket closed prematurely, trying to reconnect in 1000ms' }
-          ]
-        },
-        {
-          pkg: 'com.android.systemui',
-          tag: 'BatteryService',
-          logs: [
-            { level: 'I', msg: 'Battery level updated: 84%, temp: 31.4C, voltage: 4120mV' },
-            { level: 'D', msg: 'Charging path status: discharging, screen: on, draw: 450mA' }
-          ]
-        }
-      ];
-
-      const simSys = [
-        { level: 'I', tag: 'dalvikvm', msg: 'GC_CONCURRENT freed 2048K, 14% free 16420K/19120K, paused 1ms+2ms' },
-        { level: 'D', tag: 'skia', msg: 'Shader cache compiled 1 new shader in 24ms, total size: 450KB' },
-        { level: 'W', tag: 'Choreographer', msg: 'Skipped 34 frames! The application may be doing too much work on its main thread.' }
-      ];
-
-      simulationInterval = setInterval(() => {
-        const now = new Date();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const hh = String(now.getHours()).padStart(2, '0');
-        const min = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        const ms = String(now.getMilliseconds()).padStart(3, '0');
-        const timeStr = `${mm}-${dd} ${hh}:${min}:${ss}.${ms}`;
-
-        const isSystem = Math.random() < 0.25;
-        let line = '';
-
-        if (isSystem) {
-          const item = simSys[Math.floor(Math.random() * simSys.length)];
-          line = `${timeStr}  1248  1412 ${item.level} ${item.tag}: ${item.msg}`;
-        } else {
-          const app = simApps[Math.floor(Math.random() * simApps.length)];
-          const pid = localSimulatedPids[app.pkg] || 28450;
-          const tid = pid + Math.floor(Math.random() * 15);
-          const logItem = app.logs[Math.floor(Math.random() * app.logs.length)];
-          line = `${timeStr}  ${String(pid).padStart(5, ' ')}  ${String(tid).padStart(5, ' ')} ${logItem.level} ${app.tag}: ${logItem.msg}`;
-        }
-
-        logQueue.push(line);
-        if (!isProcessingQueue) processLogQueue();
-      }, 150);
-
-      // 监听包名输入框更改，更新模拟 PID
-      document.getElementById('inputPkg').addEventListener('input', updateSimulatedPid);
     }
 
     // 清空日志
